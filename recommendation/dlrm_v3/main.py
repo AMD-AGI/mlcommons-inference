@@ -44,10 +44,12 @@ import sys
 import os
 import argparse
 import array
+import faulthandler  # CLAUDE: added for Python traceback on segfault (AMD ROCm debugging)
 import logging
 import random
 import threading
 
+faulthandler.enable()  # CLAUDE: print Python stack trace on segfault instead of silent crash
 logging.basicConfig(level=logging.INFO)
 
 # pyre-ignore [21]
@@ -99,7 +101,8 @@ def get_args():  # pyre-ignore [3]
         "--find-peak-performance", type=bool, default=False, help="Whether to find peak performance in the benchmark"
     )
     parser.add_argument(
-        "--dataset-path-prefix", type=str, default=f"/home/{os.getlogin()}/dlrmv3_dataset/", help="Prefix to the dataset path. Example: /home/username/"
+        # CLAUDE: replaced os.getlogin() with os.environ.get() -- getlogin() crashes in Slurm (no controlling terminal)
+        "--dataset-path-prefix", type=str, default=f"/home/{os.environ.get('USER', 'unknown')}/dlrmv3_dataset/", help="Prefix to the dataset path. Example: /home/username/"
     )
     parser.add_argument(
         "--warmup-ratio", type=float, default=0.1, help="The ratio of the dataset used to warmup SUT"
@@ -118,6 +121,10 @@ def get_args():  # pyre-ignore [3]
     )
     parser.add_argument(
         "--dataset-percentage", type=float, default=0.0001, help="Percentage of the dataset to run in the benchmark"
+    )
+    # CLAUDE: added --skip-warmup to bypass slow autotune loop (PyTorch fallback ops are slow)
+    parser.add_argument(
+        "--skip-warmup", action="store_true", default=False, help="Skip the autotune warmup phase"
     )
     args, unknown_args = parser.parse_known_args()
     logger.warning(f"unknown_args: {unknown_args}")
@@ -644,6 +651,7 @@ def run(
     numpy_rand_seed: int = 123,
     sparse_quant: bool = False,
     dataset_percentage: float = 1.0,
+    skip_warmup: bool = False,  # CLAUDE: skip autotune warmup for AMD ROCm
 ) -> None:
     """
     Execute the MLPerf DLRMv3 inference benchmark.
@@ -727,7 +735,8 @@ def run(
     model_family.load(model_path)
 
     # warmup
-    for autotune_bs in range(batchsize, 0, -1):
+    # CLAUDE: skip_warmup bypasses this loop -- the PyTorch fallback jagged ops are too slow for 40 warmup iterations
+    for autotune_bs in range(batchsize if not skip_warmup else 0, 0, -1):
         logger.warning(f"Autotune for batch size {autotune_bs}")
         warmup_ids = list(range(autotune_bs))
         ds.load_query_samples(warmup_ids)
@@ -881,6 +890,7 @@ def main() -> None:
         numpy_rand_seed=args.numpy_rand_seed,
         sparse_quant=args.sparse_quant,
         dataset_percentage=args.dataset_percentage,
+        skip_warmup=args.skip_warmup,  # CLAUDE: pass through --skip-warmup flag
     )
 
 

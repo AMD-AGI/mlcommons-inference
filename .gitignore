@@ -6,3 +6,6 @@ generated/
 *.egg-info/
 *.so
 .vscode/
+recommendation/dlrm_v3/.venv/
+recommendation/dlrm_v3/logs/
+recommendation/dlrm_v3/mlperf_log*

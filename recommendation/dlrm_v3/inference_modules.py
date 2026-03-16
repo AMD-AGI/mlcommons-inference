@@ -19,9 +19,11 @@ Inference modules for DLRMv3.
 This module provides inference-specific components for the HSTU model,
 including sparse inference modules and utilities for moving tensors between devices.
 """
+import os
 from typing import Dict, Optional, Tuple
 
 import torch
+from generative_recommenders.common import HammerKernel
 from generative_recommenders.modules.dlrm_hstu import (
     DlrmHSTU,
     DlrmHSTUConfig,
@@ -82,6 +84,10 @@ def get_hstu_model(
     )
     model.eval()
     model.recursive_setattr("_use_triton_cc", False)
+    # CLAUDE: force PyTorch native ops instead of Triton kernels
+    # (Triton compiler fails on gfx950 with PassManager::run error, see triton-lang/triton#9078)
+    if os.environ.get("DLRMV3_USE_PYTORCH_OPS", "0") == "1":
+        model.set_hammer_kernel(HammerKernel.PYTORCH)
     for _, module in model.named_modules():
         if isinstance(module, EmbeddingBagCollection) or isinstance(
             module, EmbeddingCollection
